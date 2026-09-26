@@ -41,10 +41,13 @@ DEV_PORT_RANGE="${AIRLOCK_PORTS:-4000-4010}"
 CODEX_LOGIN_PORT="${AIRLOCK_CODEX_LOGIN_PORT:-1455}"
 LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://host.containers.internal:8080/v1}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://host.containers.internal:11434}"
+# --ozone-platform=wayland: pin the editor to the mounted Wayland socket;
+#   without it, a missing Wayland connection makes Electron fall back to
+#   X11, which does not exist in the container, and crash on startup.
 # --no-sandbox: Chromium's setuid sandbox cannot start inside a rootless
-# container, and the container itself is the isolation boundary.
+#   container, and the container itself is the isolation boundary.
 # --disable-gpu avoids GPU crashes on devices the container cannot see.
-CODE_ARGS="${AIRLOCK_CODE_ARGS:---disable-gpu --no-sandbox}"
+CODE_ARGS="${AIRLOCK_CODE_ARGS:---ozone-platform=wayland --disable-gpu --no-sandbox}"
 # Where the airlock symlink lives; install creates it, uninstall removes it.
 BIN_DIR="${AIRLOCK_BIN_DIR:-${HOME}/.local/bin}"
 
@@ -490,6 +493,11 @@ vscode_in_container() {
     ensure_running
     [[ "$(container_label airlock.gui)" == "1" ]] \
         || die "${BOX_NAME} was started without --gui; run: $(basename "$0") reset && $(basename "$0") up --gui"
+    # A dead socket happens when the compositor restarted (logout, reboot)
+    # after the container started; restarting the container remounts it.
+    if ! podman exec "${BOX_NAME}" sh -c 'test -S "${WAYLAND_DISPLAY:-/nonexistent}"'; then
+        die "no live Wayland socket inside ${BOX_NAME}; run: $(basename "$0") down && $(basename "$0") up --gui"
+    fi
     # shellcheck disable=SC2086
     podman exec -d "${BOX_NAME}" code ${CODE_ARGS} "${target}"
     log "Launched VS Code inside ${BOX_NAME} at ${target}."

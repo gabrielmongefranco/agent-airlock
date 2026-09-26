@@ -87,15 +87,21 @@ The local LLM port lines are `info` because the airlock works without a local mo
 
 **Symptom:** `airlock vscode` (or the `code` shorthand) reports a launch, but no window opens. On KDE, a notification may say `/usr/share/code/code has encountered a fatal error`.
 
-**Cause:** VS Code is an Electron application, and Electron embeds Chromium as its user interface engine, so Chromium's flags and sandbox rules apply to the editor. The most common cause here is Chromium's setuid sandbox, which cannot start inside a rootless container. The launcher now passes `--no-sandbox` by default, because the container itself is the isolation boundary.
+**Cause:** VS Code is an Electron application, and Electron embeds Chromium as its user interface engine, so Chromium's flags and sandbox rules apply to the editor. Two causes have been seen. Chromium's setuid sandbox cannot start inside a rootless container, so the launcher passes `--no-sandbox`, because the container itself is the isolation boundary. And when the editor cannot reach the Wayland socket, it falls back to X11, which does not exist in the container, and exits; a foreground run then prints `Missing X server or $DISPLAY` and `The platform failed to initialize`. A dead socket usually means the compositor restarted (logout or reboot) after the container started. The `Failed to connect to the bus ... system_bus_socket` line in the same output is harmless, because the container has no system D-Bus.
 
-**Fix:** update the launcher and try again. If it still fails, run the editor in the foreground so the real error is visible:
+**Fix:** update the launcher. It now pins the editor to Wayland with `--ozone-platform=wayland` and refuses to launch when the socket inside the container is not alive, naming this restart as the fix:
 
 ```bash
-podman exec -it airlock code --disable-gpu --no-sandbox --verbose ~/git
+airlock down && airlock up --gui
 ```
 
-Keep that output; it names the actual failure. If you override `AIRLOCK_CODE_ARGS`, include `--no-sandbox` in your override.
+If it still fails, run the editor in the foreground so the real error is visible:
+
+```bash
+podman exec -it airlock code --ozone-platform=wayland --disable-gpu --no-sandbox --verbose ~/git
+```
+
+Type the flags exactly; a misspelled flag such as `--nosand-box` is passed through to Chromium and silently ignored. Keep the output; it names the actual failure. If you override `AIRLOCK_CODE_ARGS`, your override replaces all three default flags, so include them.
 
 
 ### "sysctl: permission denied" and "invoke-rc.d: policy-rc.d denied execution" during the build
