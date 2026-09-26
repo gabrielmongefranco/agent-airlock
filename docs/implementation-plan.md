@@ -41,6 +41,7 @@ Files in this folder:
 | `config/bashrc-agent.sh` | Shell defaults inside the airlock. |
 | `config/env.example` | Optional API keys and endpoint overrides for the launcher. |
 | `config/vscode-host-settings.jsonc` | Settings to merge into the host VS Code for the attach fallback. |
+| `config/vscode-container-settings.jsonc` | Default user settings for the VS Code inside the airlock (Workspace Trust off). |
 
 The launcher records whether a container was started with `--gui` as a container label, so `airlock code` can refuse to run against a container that has no display.
 
@@ -79,6 +80,7 @@ Two things in this phase were not verified in advance and may need a fix on firs
 - In Claude Code, `/sandbox` shows the sandbox enabled and no Dependencies tab. Ask it to run `touch ~/../outside.txt`; the write is denied.
 - Ask Claude Code to run `ls /home/<your host user>`; it fails, because that directory does not exist in the airlock.
 - `codex` starts and reports its sandbox mode. If it reports the sandbox unavailable, switch `sandbox_mode` to `danger-full-access` in `~/.codex/config.toml` inside the airlock and note it under Open items.
+- Signing in to GitHub from the editor (for Copilot) opens the in-container Firefox and the redirect returns to the editor.
 - Closing and reopening the window keeps the logins.
 
 

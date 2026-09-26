@@ -131,6 +131,38 @@ Type the flags exactly; a misspelled flag such as `--nosand-box` is passed throu
 **Fix:** merge `config/vscode-host-settings.jsonc` into your host VS Code user settings, which sets `dev.containers.dockerPath` to `podman`, and install the Dev Containers extension on the host. `airlock attach` prints the manual steps. The launcher now warns when the settings are missing.
 
 
+### VS Code shows a "Restricted Mode" banner and Source Control does not work
+
+**Symptom:** the editor inside the container opens with a banner reading "Restricted Mode is intended for safe code browsing", and the Source Control view says no provider works in restricted mode.
+
+**Cause:** VS Code's Workspace Trust treats a folder it has not seen before as untrusted and disables features, including git integration, until you trust it. Inside the airlock this guard adds little, because everything under `~/git` is your own work and the container is the isolation boundary.
+
+**Fix:** rebuild the image and recreate the container, and the airlock's VS Code starts with Workspace Trust disabled (`config/vscode-container-settings.jsonc`). On an existing container, either click "Manage" in the banner and trust the parent folder `/home/agent/git` once, or copy the setting in by hand:
+
+```bash
+podman exec airlock mkdir -p /home/agent/.config/Code/User
+podman cp config/vscode-container-settings.jsonc airlock:/home/agent/.config/Code/User/settings.json
+```
+
+The image copies this file only when the home volume is first created, so an existing volume keeps whatever settings it already has.
+
+
+### GitHub sign-in from the editor inside the container never finishes
+
+**Symptom:** clicking "Sign in with GitHub" in the VS Code that runs inside the container shows a progress bar that never completes.
+
+**Cause:** that sign-in needs a browser round trip that ends in a `vscode://` link handled by the same machine. Without a browser in the container, the reply never arrives.
+
+**Fix:** the sign-in must finish in a browser inside the container. Images built with `--gui` include Firefox for exactly this, so rebuild (`airlock build --gui`) and recreate the container, or install it into the running container without a rebuild:
+
+```bash
+airlock shell
+sudo apt-get update && sudo apt-get install -y firefox-esr
+```
+
+Then retry the sign-in; it opens Firefox on your desktop, and the redirect back to the editor stays inside the container. Two fallbacks also work: open the project through the host window (`airlock vscode --host`), where the round trip completes on the host, or skip editor sign-in entirely when you only need the agents, because Claude Code, Codex, and git read the `airlock login` credentials. Installing extensions from the marketplace needs no sign-in; only account-bound extensions such as Copilot do.
+
+
 ### Conclusion
 
 You can now match the failures seen so far to their fixes, and you know to keep the full command output when something new breaks. The [implementation plan](implementation-plan.md) carries the per-phase checklists that catch most of these earlier.

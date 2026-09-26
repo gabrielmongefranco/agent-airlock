@@ -174,6 +174,7 @@ Subscription login works without a browser inside the container:
 - Claude Code prints a URL; you open it on the host and paste the code back.
 - Codex prints a URL and listens on port 1455, which the launcher publishes to host loopback, so the host browser's callback lands in the container. Recent Codex versions also offer a device-code login.
 - Both VS Code extensions read the CLI credential stores, so each vendor is logged in once.
+- Sign-ins that must end inside the editor, such as GitHub for Copilot, use the Firefox that `--gui` images carry, so the whole round trip stays in the container.
 
 Colleagues with API keys put them in the env file (`config/env.example`). The Claude settings deny those variables to sandboxed shell commands; the CLIs read them in-process.
 

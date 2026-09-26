@@ -62,13 +62,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ### Optional Desktop VS Code ###
 # Installed from Microsoft's apt repository only when WITH_GUI=1. The package
-# pulls in its own GTK and audio dependencies.
+# pulls in its own GTK and audio dependencies. Firefox comes along for the
+# browser round trips that must finish inside the container, such as the
+# editor's GitHub sign-in for Copilot; it draws on the same Wayland socket.
 RUN if [ "${WITH_GUI}" = "1" ]; then \
         curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
             | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
         && echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
             > /etc/apt/sources.list.d/vscode.list \
-        && apt-get update && apt-get install -y --no-install-recommends code \
+        && apt-get update && apt-get install -y --no-install-recommends code firefox-esr \
         && rm -rf /var/lib/apt/lists/* ; \
     fi
 
@@ -117,6 +119,10 @@ RUN mkdir -p "${HOME}/.npm-global" "${HOME}/.local/bin" "${HOME}/git" \
 COPY --chown=agent:agent config/claude-settings.json /home/agent/.claude/settings.json
 COPY --chown=agent:agent config/codex-config.toml /home/agent/.codex/config.toml
 COPY --chown=agent:agent config/bashrc-agent.sh /home/agent/.bashrc.d/airlock.sh
+# The in-container VS Code reads its user settings as JSONC, so the file
+# keeps its license header. Workspace Trust is disabled there because the
+# container is the isolation boundary; see the file for the reasoning.
+COPY --chown=agent:agent config/vscode-container-settings.jsonc /home/agent/.config/Code/User/settings.json
 RUN printf '\n# Airlock shell defaults\nfor f in ~/.bashrc.d/*.sh; do [ -r "$f" ] && . "$f"; done\n' >> "${HOME}/.bashrc"
 
 ENTRYPOINT ["/usr/local/bin/airlock-entrypoint"]
