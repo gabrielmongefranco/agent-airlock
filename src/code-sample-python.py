@@ -2,7 +2,7 @@
 """
 Summary: < SUMMARY OF WHAT THIS FILE OR MODULE DOES >
 
-This file is part of YOUR_PROJECT_TITLE
+This file is part of Agent Airlock™
 < CLASS, MODULE OR FILE NAME >
 
 Author(s): Gabriel Mongefranco
@@ -10,7 +10,7 @@ Created: 2026-01-01
 Notes: See README file for documentation and full license information.
 """
 
-# Copyright © YOUR_YEAR Gabriel Mongefranco
+# Copyright © 2026 Gabriel Mongefranco
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ Notes: See README file for documentation and full license information.
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
 __author__ = "Gabriel Mongefranco"
-__copyright__ = "Copyright (C) YOUR_YEAR Gabriel Mongefranco"
+__copyright__ = "Copyright (C) 2026 Gabriel Mongefranco"
 __license__ = "GPLv3 or later"
 __date__ = "2026-01-01"
 

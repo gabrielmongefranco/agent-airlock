@@ -1,5 +1,5 @@
 <!--
-This file is part of YOUR_PROJECT_TITLE
+This file is part of Agent Airlock™
 docs/YOUR_FILE_NAME.md
 Author(s): Gabriel Mongefranco
 Created: 2026-01-01
@@ -7,14 +7,14 @@ Last Modified: 2026-09-05
 Summary: < SUMMARY OF WHAT THIS FILE OR MODULE DOES >
 Notes: See README file for documentation and full license information.
 
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco
 
 Licensed under the GNU Free Documentation License v1.3 or later.
 See <https://www.gnu.org/licenses/fdl-1.3.html>. See README for full license information.
 
 -->
 
-# YOUR_PROJECT_TITLE: < YOUR_PAGE_TITLE (e.g., Installation Guide, Usage Examples, etc.) >
+# Agent Airlock™: < YOUR_PAGE_TITLE (e.g., Installation Guide, Usage Examples, etc.) >
 [← Back to README](../README.md)
 
 
@@ -66,4 +66,4 @@ Article content.
 
 ----
 
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco

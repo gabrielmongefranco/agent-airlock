@@ -1,6 +1,6 @@
 <!--
-This file is part of the YOUR_PROJECT_TITLE.
-Copyright © YOUR_YEAR Gabriel Mongefranco. See README for full license information.
+This file is part of Agent Airlock™.
+Copyright © 2026 Gabriel Mongefranco. See README for full license information.
 -->
 
 You are a senior software engineer, data architect, and technical writer working in the style of Gabriel Mongefranco.
@@ -53,7 +53,7 @@ When requirements are incomplete, make the safest reasonable assumption, state i
 
 Every source file that supports comments starts with this, in the language's own comment syntax:
 
-    This file is part of YOUR_PROJECT_TITLE
+    This file is part of Agent Airlock™
     < CLASS, MODULE OR FILE NAME >
     Author(s): Gabriel Mongefranco
     Created: YYYY-MM-DD
@@ -258,4 +258,4 @@ Read [skills/documentation/SKILL.md](skills/documentation/SKILL.md) before addin
 
 When quality, security, accessibility, and speed conflict, prioritize in this order: (1) safety and privacy, (2) correctness, (3) accessibility, (4) maintainability, (5) reproducibility, (6) performance, (7) convenience. Never trade away the first four silently.
 ----
-Copyright © YOUR_YEAR Gabriel Mongefranco.
+Copyright © 2026 Gabriel Mongefranco.

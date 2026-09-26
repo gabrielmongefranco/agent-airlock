@@ -1,11 +1,11 @@
 <!--
-This file is part of YOUR_PROJECT_TITLE
-Copyright © YOUR_YEAR Gabriel Mongefranco
+This file is part of Agent Airlock™
+Copyright © 2026 Gabriel Mongefranco
 Licensed under the GNU Free Documentation License v1.3 or later.
 See <https://www.gnu.org/licenses/fdl-1.3.html>. See README for full license information.
 -->
 
-# YOUR_PROJECT_TITLE
+# Agent Airlock™
 
 ## Documentation
 
@@ -17,6 +17,9 @@ for developers and maintainers.
 
 ### Guides
 
+- [Architecture](architecture.md): what runs where, what the agents can reach, and why it is built this way.
+- [Implementation plan](implementation-plan.md): phased bring-up on Linux, Windows, and macOS, with a checklist per phase.
+- [Pending decisions](pending-decisions.md): open choices on installing Claude Code and pinning the image's other packages.
 - [Documentation template](doc-template.md): starting structure for a knowledge base page.
 - [Skill authoring examples](skill-examples.md): optional recipes for common project types.
 

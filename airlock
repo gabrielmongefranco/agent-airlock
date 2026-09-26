@@ -1,0 +1,539 @@
+#!/usr/bin/env bash
+# This file is part of Agent Airlock™
+# airlock
+# Author(s): Gabriel Mongefranco
+# Created: 2026-09-23
+# Last Modified: 2026-09-26
+# Summary: Builds and manages the airlock, a rootless podman container that
+#          holds the AI coding agents and their tools. The container sees only
+#          the host's ~/git directory and its own home volume, reaches the
+#          host's local LLM server, and can run VS Code itself over the host's
+#          Wayland display (Linux desktops and WSLg). Runs on Linux, inside
+#          WSL2 on Windows, and on macOS with podman machine.
+# Notes: See README file for documentation and full license information.
+#
+# Copyright © 2026 Gabriel Mongefranco
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
+
+set -euo pipefail
+
+### Load Configuration ###
+# Every value can be overridden from the environment. Paths on the host side
+# are the user's; paths on the container side are fixed by the Containerfile.
+BOX_NAME="${AIRLOCK_NAME:-airlock}"
+IMAGE="${AIRLOCK_IMAGE:-localhost/agentairlock:latest}"
+VOLUME="${AIRLOCK_VOLUME:-${BOX_NAME}-home}"
+GIT_DIR="${AIRLOCK_GIT_DIR:-${HOME}/git}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/airlock"
+ENV_FILE_DEFAULT="${CONFIG_DIR}/env"
+DEV_PORT_RANGE="${AIRLOCK_PORTS:-4000-4010}"
+CODEX_LOGIN_PORT="${AIRLOCK_CODEX_LOGIN_PORT:-1455}"
+LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://host.containers.internal:8080/v1}"
+OLLAMA_HOST="${OLLAMA_HOST:-http://host.containers.internal:11434}"
+CODE_ARGS="${AIRLOCK_CODE_ARGS:---disable-gpu}"
+
+# Container-side constants. They match the Containerfile.
+CONTAINER_HOME="/home/agent"
+CONTAINER_GIT_DIR="${CONTAINER_HOME}/git"
+CONTAINER_UID=1000
+CONTAINER_GID=1000
+WAYLAND_SOCKET_IN_BOX="/tmp/wayland-host"
+# Address pasta maps to the host loopback so services bound to 127.0.0.1 on
+# the host (llama-swap, the LLM gateway) are reachable from the container.
+HOST_LOOPBACK_ALIAS="169.254.1.3"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST_OS="$(uname -s)"
+
+### Helpers ###
+log() { printf '%s\n' "$*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <command> [options]
+
+Commands:
+  build [--gui]              Build the image. --gui also installs VS Code in it.
+  up [--gui] [--env-file F]  Create or start the container. --gui shares the Wayland display.
+  down                       Stop the container.
+  shell                      Open a shell inside the container at ${CONTAINER_GIT_DIR}.
+  code [PATH]                Open VS Code inside the container (needs "up --gui").
+  open [PATH]                Open the host VS Code attached to the container (no --gui needed).
+  attach                     Print the manual steps to attach the host VS Code.
+  login <claude|codex|gh>    Run the browser-based login for a tool inside the container.
+  update                     Update the agent CLIs inside the container.
+  snapshot [TAG]             Save the container's current image layer under a tag.
+  status                     Show container, image, and volume state.
+  doctor                     Check the host for everything the airlock needs.
+  reset [--purge]            Remove the container. --purge also deletes the home volume.
+
+Hosts: Linux desktops and WSL2 support every command; macOS supports all but
+code, since it has no Wayland display.
+
+Environment overrides: AIRLOCK_NAME, AIRLOCK_IMAGE, AIRLOCK_VOLUME,
+AIRLOCK_GIT_DIR, AIRLOCK_PORTS, AIRLOCK_CODE_ARGS, LOCAL_LLM_BASE_URL,
+OLLAMA_HOST. An env file at ${ENV_FILE_DEFAULT} is passed to the container
+when present (see config/env.example).
+EOF
+}
+
+confirm() {
+    # Asks a yes/no question on the terminal. Returns 1 unless the answer is y.
+    local answer
+    read -r -p "$1 [y/N] " answer </dev/tty
+    [[ "${answer}" == "y" || "${answer}" == "Y" ]]
+}
+
+is_linux() { [[ "${HOST_OS}" == "Linux" ]]; }
+is_macos() { [[ "${HOST_OS}" == "Darwin" ]]; }
+is_wsl() {
+    # WSL2 kernels identify themselves in /proc/version.
+    is_linux && [[ -r /proc/version ]] && grep -qi microsoft /proc/version
+}
+
+container_exists() { podman container exists "${BOX_NAME}" 2>/dev/null; }
+container_running() {
+    [[ "$(podman inspect -f '{{.State.Running}}' "${BOX_NAME}" 2>/dev/null)" == "true" ]]
+}
+container_label() {
+    # Prints the value of a container label, or nothing when unset.
+    podman inspect -f "{{ index .Config.Labels \"$1\" }}" "${BOX_NAME}" 2>/dev/null || true
+}
+
+podman_version_ok() {
+    # host.containers.internal only resolves reliably from podman 5.3 on.
+    local version major minor
+    version="$(podman version --format '{{.Client.Version}}' 2>/dev/null || echo 0.0)"
+    major="${version%%.*}"
+    minor="${version#*.}"; minor="${minor%%.*}"
+    (( major > 5 || (major == 5 && minor >= 3) ))
+}
+
+require_podman() {
+    command -v podman >/dev/null 2>&1 || die "podman is not installed"
+    if is_macos; then
+        podman info >/dev/null 2>&1 \
+            || die "podman machine is not running; start it with: podman machine start"
+    fi
+    podman_version_ok || log "warning: podman 5.3 or newer is recommended for host.containers.internal"
+}
+
+selinux_active() {
+    is_linux && command -v getenforce >/dev/null 2>&1 \
+        && [[ "$(getenforce)" != "Disabled" ]]
+}
+
+git_dir_relabeled() {
+    stat --format='%C' "${GIT_DIR}" 2>/dev/null | grep -q 'container_file_t'
+}
+
+ensure_git_dir_label() {
+    # Rootless podman under SELinux cannot read a bind mount unless the files
+    # carry the container_file_t type. A one-time relabel avoids the per-start
+    # walk that the :Z mount option would do over the whole tree.
+    selinux_active || return 0
+    git_dir_relabeled && return 0
+    log "SELinux is active and ${GIT_DIR} is not labeled for container access."
+    log "Relabeling changes the SELinux type on every file under ${GIT_DIR}."
+    log "Host tools keep working; restorecon would undo it."
+    confirm "Run: chcon -R -t container_file_t ${GIT_DIR} ?" \
+        || die "the container cannot read ${GIT_DIR} without the relabel"
+    chcon -R -t container_file_t "${GIT_DIR}"
+}
+
+wayland_socket_path() {
+    # Prints the real path of the session's Wayland socket. Under WSLg the
+    # entry in XDG_RUNTIME_DIR is a symlink into /mnt/wslg, so it is resolved
+    # before being bind-mounted.
+    [[ -n "${WAYLAND_DISPLAY:-}" && -n "${XDG_RUNTIME_DIR:-}" ]] || return 1
+    local candidate="${WAYLAND_DISPLAY}"
+    [[ "${candidate}" == /* ]] || candidate="${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}"
+    candidate="$(readlink -f "${candidate}" 2>/dev/null || true)"
+    [[ -S "${candidate}" ]] || return 1
+    printf '%s' "${candidate}"
+}
+
+wsl_gateway() {
+    # The address of the Windows host as seen from a NAT-mode WSL2 distro.
+    ip route show default 2>/dev/null | awk '/default/ {print $3; exit}'
+}
+
+host_timezone() {
+    if [[ -n "${TZ:-}" ]]; then
+        printf '%s' "${TZ}"
+    elif is_linux && command -v timedatectl >/dev/null 2>&1; then
+        timedatectl show -p Timezone --value 2>/dev/null || printf 'UTC'
+    elif is_linux && [[ -r /etc/timezone ]]; then
+        cat /etc/timezone
+    elif is_macos && [[ -L /etc/localtime ]]; then
+        readlink /etc/localtime | sed 's#.*/zoneinfo/##'
+    else
+        printf 'UTC'
+    fi
+}
+
+resolve_env_file() {
+    # Prints the env file to use, or nothing. An explicit path must exist.
+    local requested="$1"
+    if [[ -n "${requested}" ]]; then
+        [[ -f "${requested}" ]] || die "env file not found: ${requested}"
+        printf '%s' "${requested}"
+    elif [[ -f "${ENV_FILE_DEFAULT}" ]]; then
+        printf '%s' "${ENV_FILE_DEFAULT}"
+    fi
+}
+
+seed_git_identity() {
+    # Copies only the commit identity from the host, never the whole
+    # .gitconfig, which may hold credential helpers or signing keys.
+    local name email
+    name="$(git config --global user.name 2>/dev/null || true)"
+    email="$(git config --global user.email 2>/dev/null || true)"
+    [[ -n "${name}" && -n "${email}" ]] || return 0
+    if [[ -z "$(podman exec "${BOX_NAME}" git config --global user.name 2>/dev/null || true)" ]]; then
+        podman exec "${BOX_NAME}" git config --global user.name "${name}"
+        podman exec "${BOX_NAME}" git config --global user.email "${email}"
+        log "Seeded git identity in the container from the host global config."
+    fi
+}
+
+container_path_for() {
+    # Translates a host path under GIT_DIR to its container path. Paths that
+    # are already container paths pass through unchanged.
+    local target="$1"
+    case "${target}" in
+        "${GIT_DIR}"*) printf '%s' "${CONTAINER_GIT_DIR}${target#"${GIT_DIR}"}" ;;
+        *) printf '%s' "${target}" ;;
+    esac
+}
+
+hex_encode() {
+    # Lowercase hex of the argument, with no separators.
+    printf '%s' "$1" | od -An -tx1 | tr -d ' \n'
+}
+
+### Commands ###
+cmd_build() {
+    local gui=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gui) gui=1 ;;
+            *) die "unknown option for build: $1" ;;
+        esac
+        shift
+    done
+    if (( gui )) && ! is_linux; then
+        die "--gui needs a Linux or WSL2 host with a Wayland session"
+    fi
+    require_podman
+    [[ -f "${SCRIPT_DIR}/Containerfile" ]] || die "Containerfile not found next to this script"
+    podman build \
+        --build-arg "WITH_GUI=${gui}" \
+        --build-arg "AGENT_UID=${CONTAINER_UID}" \
+        --build-arg "AGENT_GID=${CONTAINER_GID}" \
+        --label "airlock.gui=${gui}" \
+        -t "${IMAGE}" \
+        -f "${SCRIPT_DIR}/Containerfile" \
+        "${SCRIPT_DIR}"
+    log "Built ${IMAGE} (gui=${gui})."
+}
+
+cmd_up() {
+    local gui=0 env_file_arg="" env_file wayland_socket
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gui) gui=1 ;;
+            --env-file) [[ $# -ge 2 ]] || die "--env-file needs a path"; env_file_arg="$2"; shift ;;
+            *) die "unknown option for up: $1" ;;
+        esac
+        shift
+    done
+    require_podman
+
+    if container_exists; then
+        if container_running; then
+            log "${BOX_NAME} is already running."
+        else
+            podman start "${BOX_NAME}" >/dev/null
+            log "Started ${BOX_NAME}."
+        fi
+        seed_git_identity
+        return 0
+    fi
+
+    [[ -d "${GIT_DIR}" ]] || die "git directory not found: ${GIT_DIR}"
+    podman image exists "${IMAGE}" || die "image ${IMAGE} not found; run: $(basename "$0") build"
+    env_file="$(resolve_env_file "${env_file_arg}")"
+
+    local -a args=(
+        run -d
+        --name "${BOX_NAME}"
+        --label "airlock.gui=${gui}"
+        --userns "keep-id:uid=${CONTAINER_UID},gid=${CONTAINER_GID}"
+        --shm-size 1g
+        -v "${VOLUME}:${CONTAINER_HOME}"
+        -v "${GIT_DIR}:${CONTAINER_GIT_DIR}"
+        -e "TZ=$(host_timezone)"
+        -e "LOCAL_LLM_BASE_URL=${LOCAL_LLM_BASE_URL}"
+        -e "OLLAMA_HOST=${OLLAMA_HOST}"
+        -p "127.0.0.1:${CODEX_LOGIN_PORT}:${CODEX_LOGIN_PORT}"
+        -p "127.0.0.1:${DEV_PORT_RANGE}:${DEV_PORT_RANGE}"
+    )
+
+    if is_linux; then
+        ensure_git_dir_label
+        # pasta copies the host address into the container, so the host's
+        # loopback services need an explicit alias to be reachable. Inside
+        # WSL2 this reaches the distro's loopback, which is the Windows
+        # loopback only under mirrored networking.
+        args+=(
+            --network "pasta:--map-host-loopback,${HOST_LOOPBACK_ALIAS}"
+            --add-host "host.containers.internal:${HOST_LOOPBACK_ALIAS}"
+        )
+    fi
+
+    if (( gui )); then
+        is_linux || die "--gui needs a Linux or WSL2 host with a Wayland session"
+        wayland_socket="$(wayland_socket_path)" \
+            || die "no Wayland socket found; WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}"
+        [[ "$(podman image inspect -f '{{ index .Config.Labels "airlock.gui" }}' "${IMAGE}")" == "1" ]] \
+            || die "image was built without --gui; run: $(basename "$0") build --gui"
+        # label=disable is required for the container to open the host's
+        # compositor socket under SELinux. The mount namespace still holds
+        # only ~/git and the home volume.
+        args+=(
+            --security-opt label=disable
+            -e "WAYLAND_DISPLAY=${WAYLAND_SOCKET_IN_BOX}"
+            -e "ELECTRON_OZONE_PLATFORM_HINT=wayland"
+            -v "${wayland_socket}:${WAYLAND_SOCKET_IN_BOX}"
+        )
+    fi
+
+    if [[ -n "${env_file}" ]]; then args+=(--env-file "${env_file}"); fi
+    args+=("${IMAGE}")
+
+    podman "${args[@]}" >/dev/null
+    log "Created and started ${BOX_NAME} (gui=${gui})."
+    seed_git_identity
+    log "Next: $(basename "$0") login claude   and   $(basename "$0") login codex"
+}
+
+cmd_down() {
+    require_podman
+    container_running || { log "${BOX_NAME} is not running."; return 0; }
+    podman stop "${BOX_NAME}" >/dev/null
+    log "Stopped ${BOX_NAME}."
+}
+
+cmd_shell() {
+    require_podman
+    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" bash -l
+}
+
+cmd_code() {
+    local target
+    target="$(container_path_for "${1:-${CONTAINER_GIT_DIR}}")"
+    require_podman
+    is_linux || die "code runs inside the container only on Linux and WSL2 hosts; use open instead"
+    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up --gui"
+    [[ "$(container_label airlock.gui)" == "1" ]] \
+        || die "${BOX_NAME} was started without --gui; run: $(basename "$0") reset && $(basename "$0") up --gui"
+    # shellcheck disable=SC2086
+    podman exec -d "${BOX_NAME}" code ${CODE_ARGS} "${target}"
+    log "Launched VS Code inside ${BOX_NAME} at ${target}."
+}
+
+cmd_open() {
+    # Opens the host VS Code already attached to the container, using the
+    # folder URI the Dev Containers extension uses for attached containers.
+    local target authority
+    target="$(container_path_for "${1:-${CONTAINER_GIT_DIR}}")"
+    require_podman
+    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    command -v code >/dev/null 2>&1 || die "the host 'code' command is not on PATH"
+    authority="attached-container+$(hex_encode "{\"containerName\":\"/${BOX_NAME}\"}")"
+    code --folder-uri "vscode-remote://${authority}${target}"
+    log "Opened ${target} in the host VS Code attached to ${BOX_NAME}."
+}
+
+cmd_attach() {
+    cat <<EOF
+Attach the host VS Code to the running container by hand:
+
+1. Merge config/vscode-host-settings.jsonc into your host VS Code user settings
+   (dev.containers.dockerPath = podman, default extensions = the agent extensions).
+2. Install the "Dev Containers" extension on the host if it is missing.
+3. Command Palette > "Dev Containers: Attach to Running Container..." > ${BOX_NAME}
+4. In the new window, open ${CONTAINER_GIT_DIR}/<repo>.
+
+On Windows, open a Remote-WSL window for the distro that runs podman first, set
+"dev.containers.executeInWSL": true, and attach from that window.
+
+Extensions you install from that window go into the container, never the host.
+Ports that servers open inside the container are forwarded to host localhost
+automatically; the Ports panel shows them. "$(basename "$0") open <path>" does
+steps 3 and 4 in one command once the settings are in place.
+EOF
+}
+
+cmd_login() {
+    local tool="${1:-}"
+    require_podman
+    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    case "${tool}" in
+        claude)
+            log "Claude Code prints a login URL. Open it in the host browser, then paste the code back here."
+            exec podman exec -it "${BOX_NAME}" claude
+            ;;
+        codex)
+            log "Codex prints a login URL. Open it in the host browser; the callback returns on port ${CODEX_LOGIN_PORT}."
+            exec podman exec -it "${BOX_NAME}" codex login
+            ;;
+        gh)
+            log "Use a fine-grained token limited to the repositories the agents work on."
+            exec podman exec -it "${BOX_NAME}" gh auth login
+            ;;
+        *)
+            die "login needs one of: claude, codex, gh"
+            ;;
+    esac
+}
+
+cmd_update() {
+    require_podman
+    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    podman exec "${BOX_NAME}" bash -lc 'claude update; npm update -g'
+}
+
+cmd_snapshot() {
+    local tag="${1:-snapshot-$(date +%Y%m%d-%H%M)}"
+    require_podman
+    container_exists || die "${BOX_NAME} does not exist"
+    # podman commit captures the image layer (apt packages, system files).
+    # The home volume is not part of an image; back it up with podman volume export.
+    podman commit "${BOX_NAME}" "localhost/agentairlock:${tag}" >/dev/null
+    log "Saved localhost/agentairlock:${tag}. The home volume is separate; export it with:"
+    log "  podman volume export ${VOLUME} --output ${BOX_NAME}-home.tar"
+}
+
+cmd_status() {
+    require_podman
+    if container_exists; then
+        podman ps -a --filter "name=^${BOX_NAME}\$" --format 'Container: {{.Names}}  {{.Status}}  image={{.Image}}'
+        log "gui=$(container_label airlock.gui)"
+    else
+        log "Container: ${BOX_NAME} does not exist"
+    fi
+    if podman image exists "${IMAGE}"; then
+        podman image inspect -f 'Image: {{.Id}}  created={{.Created}}' "${IMAGE}" | cut -c1-90
+    else
+        log "Image: ${IMAGE} not built"
+    fi
+    if podman volume exists "${VOLUME}"; then
+        podman volume inspect -f 'Volume: {{.Name}}  {{.Mountpoint}}' "${VOLUME}"
+    else
+        log "Volume: ${VOLUME} not created"
+    fi
+}
+
+cmd_doctor() {
+    local ok=1 port gateway
+    if command -v podman >/dev/null 2>&1; then
+        log "podman: $(podman version --format '{{.Client.Version}}')"
+        if ! podman_version_ok; then log "  wanted 5.3 or newer"; ok=0; fi
+    else
+        log "podman: missing"; ok=0
+    fi
+    if is_macos; then
+        if podman info >/dev/null 2>&1; then log "podman machine: running"; else log "podman machine: not running"; ok=0; fi
+    fi
+    if is_wsl; then
+        log "host: WSL2"
+        gateway="$(wsl_gateway)"
+        log "  Windows host address (NAT mode): ${gateway:-unknown}"
+        log "  If the LLM server runs on Windows under NAT networking, set"
+        log "  LOCAL_LLM_BASE_URL=http://${gateway:-<gateway>}:8080/v1 and OLLAMA_HOST=http://${gateway:-<gateway>}:11434"
+        log "  Under mirrored networking the defaults already reach Windows loopback."
+    fi
+    if [[ -d "${GIT_DIR}" ]]; then log "git dir: ${GIT_DIR}"; else log "git dir: ${GIT_DIR} missing"; ok=0; fi
+    if selinux_active; then
+        if git_dir_relabeled; then
+            log "selinux: ${GIT_DIR} labeled container_file_t"
+        else
+            log "selinux: ${GIT_DIR} needs relabel (up will offer it)"
+        fi
+    fi
+    if is_linux; then
+        if wayland_socket_path >/dev/null; then
+            log "wayland: $(wayland_socket_path) (--gui available)"
+        else
+            log "wayland: no session socket found (--gui unavailable)"
+        fi
+    fi
+    if [[ -f "${ENV_FILE_DEFAULT}" ]]; then log "env file: ${ENV_FILE_DEFAULT}"; else log "env file: none (browser login mode)"; fi
+    for port in 8080 11434; do
+        if command -v curl >/dev/null 2>&1 && curl -s -m 2 -o /dev/null "http://127.0.0.1:${port}/"; then
+            log "host LLM port ${port}: listening"
+        else
+            log "host LLM port ${port}: not answering on this host's loopback"
+        fi
+    done
+    if (( ok )); then log "doctor: ready"; else die "doctor: fix the items above"; fi
+}
+
+cmd_reset() {
+    local purge=0
+    [[ "${1:-}" == "--purge" ]] && purge=1
+    require_podman
+    if container_exists; then
+        confirm "Remove container ${BOX_NAME}? (apt packages installed inside are lost; the home volume stays)" \
+            || die "cancelled"
+        podman rm -f "${BOX_NAME}" >/dev/null
+        log "Removed ${BOX_NAME}."
+    fi
+    if (( purge )) && podman volume exists "${VOLUME}"; then
+        confirm "Delete home volume ${VOLUME}? (logins, installed agent tools, and settings are lost)" \
+            || die "cancelled"
+        podman volume rm "${VOLUME}" >/dev/null
+        log "Deleted ${VOLUME}."
+    fi
+}
+
+### Dispatch ###
+main() {
+    local command="${1:-}"
+    [[ -n "${command}" ]] || { usage; exit 1; }
+    shift
+    case "${command}" in
+        build)    cmd_build "$@" ;;
+        up)       cmd_up "$@" ;;
+        down)     cmd_down ;;
+        shell)    cmd_shell ;;
+        code)     cmd_code "$@" ;;
+        open)     cmd_open "$@" ;;
+        attach)   cmd_attach ;;
+        login)    cmd_login "$@" ;;
+        update)   cmd_update ;;
+        snapshot) cmd_snapshot "$@" ;;
+        status)   cmd_status ;;
+        doctor)   cmd_doctor ;;
+        reset)    cmd_reset "$@" ;;
+        -h|--help|help) usage ;;
+        *) usage; die "unknown command: ${command}" ;;
+    esac
+}
+
+main "$@"

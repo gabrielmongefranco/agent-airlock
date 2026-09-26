@@ -1,11 +1,11 @@
-* This file is part of YOUR_PROJECT_TITLE
+* This file is part of Agent Airlock™
 * < CLASS, MODULE OR FILE NAME >
 * Author(s): Gabriel Mongefranco
 * Created: 2026-01-01
 * Summary: < SUMMARY OF WHAT THIS FILE OR MODULE DOES >
 * Notes: See README file for documentation and full license information.
 *
-* Copyright © YOUR_YEAR Gabriel Mongefranco
+* Copyright © 2026 Gabriel Mongefranco
 * 
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by

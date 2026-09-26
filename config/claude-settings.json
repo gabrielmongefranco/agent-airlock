@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "enableWeakerNestedSandbox": true,
+    "excludedCommands": [
+      "zippyserve *",
+      "python3 -m http.server *",
+      "python -m http.server *",
+      "npx playwright *",
+      "playwright *",
+      "sudo apt-get *",
+      "sudo apt *",
+      "npm install -g *",
+      "pipx install *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "host.containers.internal",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "index.golang.org",
+        "luarocks.org",
+        "*.luarocks.org",
+        "crates.io",
+        "static.crates.io",
+        "index.crates.io",
+        "deb.debian.org",
+        "security.debian.org",
+        "packages.microsoft.com",
+        "playwright.download.prss.microsoft.com",
+        "cdn.jsdelivr.net",
+        "unpkg.com",
+        "huggingface.co",
+        "*.huggingface.co",
+        "claude.ai",
+        "*.anthropic.com",
+        "*.openai.com",
+        "chatgpt.com",
+        "docs.claude.com",
+        "code.claude.com",
+        "developers.openai.com",
+        "platform.openai.com",
+        "ai.google.dev",
+        "platform.moonshot.ai",
+        "duckduckgo.com",
+        "html.duckduckgo.com",
+        "www.google.com",
+        "www.bing.com",
+        "learn.microsoft.com",
+        "developer.mozilla.org",
+        "stackoverflow.com",
+        "*.stackexchange.com",
+        "www.reddit.com",
+        "old.reddit.com",
+        "*.debian.org",
+        "docs.fedoraproject.org",
+        "pubmed.ncbi.nlm.nih.gov",
+        "app.dimensions.ai",
+        "zenodo.org",
+        "*.umich.edu",
+        "*.depressioncenter.org"
+      ]
+    },
+    "credentials": {
+      "envVars": [
+        { "name": "ANTHROPIC_API_KEY", "mode": "deny" },
+        { "name": "OPENAI_API_KEY", "mode": "deny" },
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "GITHUB_TOKEN", "mode": "deny" }
+      ]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(zippyserve *)",
+      "Bash(python3 -m http.server *)",
+      "Bash(python -m http.server *)",
+      "Bash(npx playwright *)",
+      "Bash(playwright *)"
+    ]
+  }
+}

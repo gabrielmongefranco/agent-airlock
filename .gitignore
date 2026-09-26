@@ -1,5 +1,5 @@
-# This file is part of YOUR_PROJECT_TITLE.
-# Copyright © YOUR_YEAR Gabriel Mongefranco.
+# This file is part of Agent Airlock™.
+# Copyright © 2026 Gabriel Mongefranco.
 # Licensed under the GNU General Public License v3.0 or later.
 # See https://www.gnu.org/licenses/gpl-3.0.html and README.md.
 
@@ -54,6 +54,10 @@ GEMINI.md
 KIMI.md
 CODEX.md
 CHATGPT.md
+
+# Ignore real environment files; only config/env.example is tracked
+.env
+config/env
 
 # Ignore cache files
 *.cache

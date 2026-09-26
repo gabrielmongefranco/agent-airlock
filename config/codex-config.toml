@@ -1,0 +1,39 @@
+# This file is part of Agent Airlock™
+# config/codex-config.toml
+# Author(s): Gabriel Mongefranco
+# Created: 2026-09-23
+# Last Modified: 2026-09-26
+# Summary: Default Codex CLI configuration copied into the airlock on first
+#          start. Keeps Codex's own workspace-write sandbox on, allows network
+#          inside it, and registers the Playwright MCP server.
+# Notes: See README file for documentation and full license information.
+#
+# Copyright © 2026 Gabriel Mongefranco
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# The container is the outer boundary; Codex's Landlock sandbox is a second,
+# tool-specific layer. If Codex reports that its sandbox cannot start inside
+# the container, change sandbox_mode to "danger-full-access" and rely on the
+# container alone.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[sandbox_workspace_write]
+# Package installs and the local LLM gateway need outbound network from
+# inside Codex's sandbox.
+network_access = true
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]

@@ -1,12 +1,12 @@
 ---
-# This file is part of YOUR_PROJECT_TITLE
+# This file is part of Agent Airlock™
 # < CLASS, MODULE OR FILE NAME >
 # Author(s): Gabriel Mongefranco
 # Created: 2026-01-01
 # Summary: < SUMMARY OF WHAT THIS FILE OR MODULE DOES >
 # Notes: See README file for documentation and full license information.
 # 
-# Copyright © YOUR_YEAR Gabriel Mongefranco
+# Copyright © 2026 Gabriel Mongefranco
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # YAML project configuration
-title: "YOUR_PROJECT_TITLE"
+title: "Agent Airlock™"
 author: "Gabriel Mongefranco"
 date: "2026-01-01"
 abstract: "< SUMMARY OF WHAT THIS FILE OR MODULE DOES >"
@@ -111,7 +111,7 @@ print('Coming soon!') # Code will be available soon.
 
 # License
 ## Copyright Notice
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco
 
 
 ## Software and Library License Notice
@@ -138,4 +138,4 @@ If you find this repository, code or paper useful for your research, please cite
 
 ----
 
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco

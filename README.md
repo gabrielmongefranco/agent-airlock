@@ -1,13 +1,13 @@
 <!--
-This file is part of YOUR_PROJECT_TITLE
+This file is part of Agent Airlock™
 README.md
 Author(s): Gabriel Mongefranco
 Created: 2026-01-01
-Last Modified: 2026-09-05
+Last Modified: 2026-09-26
 Summary: Provides an overview of the project, in Markdown format.
 Notes: See README file for documentation and full license information.
 
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,51 +21,57 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 
 -->
 > [!NOTE]
-> # Gabriel Mongefranco's Repo Template
+> **Gabriel Mongefranco's Repo Template**
 > <sub>Copyright © 2026 Gabriel Mongefranco. Based on [@DepressionCenter/EFDC-Repo-Template](https://github.com/DepressionCenter/EFDC-Repo-Template) (GPLv3/FDL).</sub>
-> ## **Template Setup Instructions (Delete this block when done)**
-> + Click the **"Use this template"** button, or download or fork this repo.
-> + Then, do a global **Find and Replace All** (Ctrl+Shift+H or Cmd+Shift+H) across all project files for the following variables:
->   * `YOUR_PROJECT_TITLE` → e.g., `Sleep Data Analyzer`
->   * `YOUR_REPO_NAME` → e.g., `sleep-data-analyzer` (no spaces, used for URLs)
->   * `YOUR_YEAR` → e.g., `2026`
->   * `YOUR_DOI` → e.g., `10.5281/zenodo.xxxxxxx` (or delete if not yet assigned)
-> + Manually edit these sections:
->   1. `README.md` → Description section and Credits section
->   2. `CITATION.cff` → `authors:` block
->   3. `.zenodo.json` → `creators:` block
-> + When done, delete the setup instructions but keep the template attribution above.
 
 
-# YOUR_PROJECT_TITLE
+# Agent Airlock™
+
+*For when you just don't trust the AI.*
 
 ## Description
-YOUR_PROJECT_TITLE is a < program/library/collection of scripts > for < description of what it does and what problem it solves >.
+Agent Airlock™ is a rootless podman container that holds the AI coding agents and their tools. The container sees only the host's `~/git` directory and its own home volume, reaches the host's local LLM server, and can run VS Code itself over the host's Wayland display (Linux desktops and WSLg). It runs on Linux, inside WSL2 on Windows, and on macOS with podman machine.
 
-![Preview Image](images/Repo-preview.png)
+***This project is under development as of 2026 and not yet ready to use.***
 
-< List of key features, or a few sentences about what makes this project unique >.
+<!-- ![Preview Image](images/Repo-preview.png) -->
+
+Key features:
++ Claude Code and Codex, as CLIs and as VS Code extensions, run inside the container with their MCP servers.
++ Agents can install tools with `sudo apt`, `npm -g`, `pipx`, or `go install` without touching the host system.
++ Test servers inside the container are published to host `localhost` only, so the host browser can open them.
++ One `airlock` launcher builds the image, starts the container, opens the editor, and runs logins.
 
 
 ## Quick Start Guide
-+ < Short compile/run instructions, without too much detail >
+1. Install podman 5.3 or newer.
+2. Clone this repository into `~/git/agentairlock` and put `airlock` on your PATH, for example with `ln -s ~/git/agentairlock/airlock ~/.local/bin/airlock`.
+3. Run `airlock doctor` to check the host.
+4. Run `airlock build --gui`, then `airlock up --gui`. On macOS, leave out `--gui`.
+5. Run `airlock login claude` and `airlock login codex`.
+6. Run `airlock code ~/git/<repo>` to open VS Code inside the container, or `airlock open ~/git/<repo>` to attach the host VS Code.
+
+Run `airlock help` for every command.
 
 
 
 ## Documentation
 + **Complete documentation:** See the [`/docs`](./docs) folder in this repository for setup guides, usage examples, architecture, and technical details.
++ **Major pages:** [Architecture](docs/architecture.md), [Implementation plan](docs/implementation-plan.md).
 
 
 
 
 ## Additional Resources
-+ < Links to study website, related projects, etc. >
++ [Podman](https://podman.io/)
++ [Claude Code sandboxing documentation](https://code.claude.com/docs/en/sandboxing)
++ [Playwright MCP server](https://github.com/microsoft/playwright-mcp)
 
 
 
 ## About the Author
 
-YOUR_PROJECT_TITLE is built by [Gabriel Mongefranco](https://gabriel.mongefranco.com), a database and
+Agent Airlock™ is built by [Gabriel Mongefranco](https://gabriel.mongefranco.com), a database and
 software architect who has spent two decades building data platforms in healthcare and
 research — enterprise data warehouses, BI systems, knowledge bases, and the first architecture for mobile and
 wearable research data at a large research university.
@@ -82,28 +88,17 @@ free to send pull requests as well!
 ## Credits
 ### Authors:
 + [Gabriel Mongefranco](https://gabriel.mongefranco.com) [(@gabrielmongefranco)](https://github.com/gabrielmongefranco)
-+ Name [ @githubusername ]( link to github profile or website )
-+ Name [ @githubusername ]( link to github profile or website )
-+ [ Name ]( link to profile or website ) [ @githubusername ]( link to github profile )
-+ [ Name ]( link to profile or website ) [ @githubusername ]( link to github profile )
-
-### Contributors:
-+ Name [ @githubusername ]( link to github profile or website )
-+ Name [ @githubusername ]( link to github profile or website )
-+ [ Name ]( link to profile or website ) [ @githubusername ]( link to github profile )
-+ [ Name ]( link to profile or website ) [ @githubusername ]( link to github profile )
 
 
 
 #### This work is based in part on the following projects, libraries and/or studies:
 + None
-+ __OR__ < Library_or_project_name > : < what_it_does.  How_it_is_used_in_this_project. > License: < license >. < link >
 
 
 
 ## License
 ### Copyright Notice
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco
 
 
 ### Software and Library License Notice
@@ -113,6 +108,8 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/gpl-3.0-standalone.html>.
 
+
+Files that cannot hold a comment carry their license notice in a sibling file instead: `config/claude-settings.json` is covered by `config/claude-settings.json.LICENSE.txt`.
 
 ### Documentation License Notice
 Permission is granted to copy, distribute and/or modify this document 
@@ -128,15 +125,8 @@ Free Documentation License". If not, see <https://www.gnu.org/licenses/fdl-1.3-s
 If you find this repository, code or paper useful for your research, please cite it.
 
 #### Citation Example:
->_Mongefranco, Gabriel (YOUR_YEAR). YOUR_PROJECT_TITLE. Software. https://github.com/gabrielmongefranco/YOUR_REPO_NAME_
-​​​​​​​     _DOI: [YOUR_DOI](https://doi.org/YOUR_DOI)_
-
-#### __OPTIONAL__ Release History and DOI #:
-* 2026-01-01: v1.0. [< DOI # e.g. 10.6084/m9.figshare.xxxxxx.v1 >](https://doi.org/...)
-* 2026-06-30: v1.5. [< DOI # e.g. 10.6084/m9.figshare.xxxxxx.v1_5 >](https://doi.org/...)
-* 2026-12-01: v2.0. [< DOI # e.g. 10.6084/m9.figshare.xxxxxx.v2 >](https://doi.org/...)
-
+>_Mongefranco, Gabriel (2026). Agent Airlock™. Software. https://github.com/gabrielmongefranco/agent-airlock_
 
 ----
 
-Copyright © YOUR_YEAR Gabriel Mongefranco
+Copyright © 2026 Gabriel Mongefranco
