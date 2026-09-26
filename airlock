@@ -570,8 +570,11 @@ cmd_login() {
             exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" codex login
             ;;
         gh)
-            log "Use a fine-grained token limited to the repositories the agents work on."
-            exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" gh auth login
+            log "Choose HTTPS and the web-browser flow; a fine-grained token limited to the agents' repositories also works."
+            # setup-git registers gh as git's credential helper, so git push
+            # over HTTPS works inside the container right after the login.
+            exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" \
+                bash -lc 'gh auth login && gh auth setup-git'
             ;;
         *)
             die "login needs one of: claude, codex, gh"

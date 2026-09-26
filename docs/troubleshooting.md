@@ -163,6 +163,15 @@ sudo apt-get update && sudo apt-get install -y firefox-esr
 Then retry the sign-in; it opens Firefox on your desktop, and the redirect back to the editor stays inside the container. Two fallbacks also work: open the project through the host window (`airlock vscode --host`), where the round trip completes on the host, or skip editor sign-in entirely when you only need the agents, because Claude Code, Codex, and git read the `airlock login` credentials. Installing extensions from the marketplace needs no sign-in; only account-bound extensions such as Copilot do.
 
 
+### "git push" asks for a username and password, then rejects them
+
+**Symptom:** `git push` opens prompts for a username and a password, and then fails saying password authentication is not supported.
+
+**Cause:** GitHub turned off password authentication for git over HTTPS in 2021. The prompts mean git has no credential helper configured, on the host or in the container; a password typed there can never work.
+
+**Fix:** log in with the GitHub CLI and let it act as git's credential helper. On the host: install it (`sudo dnf install gh` on Fedora, `sudo apt-get install gh` on Debian and Ubuntu), then run `gh auth login` (choose GitHub.com, HTTPS, and the web-browser flow) followed by `gh auth setup-git`. Inside the container: run `airlock login gh`, which runs the same login and registers the helper for you. The two logins are separate on purpose; the container keeps its own token in the home volume, inside the boundary, and never sees the host's.
+
+
 ### Conclusion
 
 You can now match the failures seen so far to their fixes, and you know to keep the full command output when something new breaks. The [implementation plan](implementation-plan.md) carries the per-phase checklists that catch most of these earlier.
