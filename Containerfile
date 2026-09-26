@@ -83,9 +83,12 @@ RUN groupadd -g "${AGENT_GID}" agent \
 ### Playwright Browsers ###
 # Installed at build time into a shared path owned by the agent user, so a
 # project's own Playwright version can add browsers without leaving the
-# workspace-write sandboxes the agents run under.
+# workspace-write sandboxes the agents run under. Playwright itself is a
+# global npm package; running it through npx in a bare directory would
+# warn and treat the directory as a project.
 RUN mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" \
-    && npx -y playwright install --with-deps chromium \
+    && npm install -g playwright \
+    && playwright install --with-deps chromium \
     && chown -R agent:agent "${PLAYWRIGHT_BROWSERS_PATH}" \
     && rm -rf /root/.npm /var/lib/apt/lists/*
 

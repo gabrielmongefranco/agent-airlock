@@ -41,7 +41,12 @@ DEV_PORT_RANGE="${AIRLOCK_PORTS:-4000-4010}"
 CODEX_LOGIN_PORT="${AIRLOCK_CODEX_LOGIN_PORT:-1455}"
 LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://host.containers.internal:8080/v1}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://host.containers.internal:11434}"
-CODE_ARGS="${AIRLOCK_CODE_ARGS:---disable-gpu}"
+# --no-sandbox: Chromium's setuid sandbox cannot start inside a rootless
+# container, and the container itself is the isolation boundary.
+# --disable-gpu avoids GPU crashes on devices the container cannot see.
+CODE_ARGS="${AIRLOCK_CODE_ARGS:---disable-gpu --no-sandbox}"
+# Where the airlock symlink lives; install creates it, uninstall removes it.
+BIN_DIR="${AIRLOCK_BIN_DIR:-${HOME}/.local/bin}"
 
 # Container-side constants. They match the Containerfile.
 CONTAINER_HOME="/home/agent"
@@ -53,7 +58,16 @@ WAYLAND_SOCKET_IN_BOX="/tmp/wayland-host"
 # the host (llama-swap, the LLM gateway) are reachable from the container.
 HOST_LOOPBACK_ALIAS="169.254.1.3"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The launcher is usually run through a symlink in ~/.local/bin, so the link
+# chain is resolved first; the Containerfile lives next to the real script.
+script_path="${BASH_SOURCE[0]}"
+while [[ -L "${script_path}" ]]; do
+    script_dir="$(cd -P "$(dirname "${script_path}")" && pwd)"
+    script_path="$(readlink "${script_path}")"
+    [[ "${script_path}" == /* ]] || script_path="${script_dir}/${script_path}"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${script_path}")" && pwd)"
+unset script_path script_dir
 HOST_OS="$(uname -s)"
 
 ### Helpers ###
@@ -65,12 +79,21 @@ usage() {
 Usage: $(basename "$0") <command> [options]
 
 Commands:
-  build [--gui]              Build the image. --gui also installs VS Code in it.
-  up [--gui] [--env-file F]  Create or start the container. --gui shares the Wayland display.
+  install [--gui]            One-time setup: podman if missing, the PATH link,
+                             the doctor check, and the image build.
+  build [--gui]              Build or rebuild the image. --gui also installs
+                             VS Code in it.
+  up [--gui] [--env-file F]  Create or start the container by hand; commands
+                             that need it also start it automatically.
+                             --gui shares the Wayland display.
   down                       Stop the container.
   shell                      Open a shell inside the container at ${CONTAINER_GIT_DIR}.
-  code [PATH]                Open VS Code inside the container (needs "up --gui").
-  open [PATH]                Open the host VS Code attached to the container (no --gui needed).
+  vscode [--container|--host] [PATH]
+                             Open VS Code on the container. --container runs it
+                             inside (the default when up used --gui, Linux only);
+                             --host attaches the host VS Code instead.
+                             Shorthands: code = vscode --container,
+                             open = vscode --host.
   attach                     Print the manual steps to attach the host VS Code.
   login <claude|codex|gh>    Run the browser-based login for a tool inside the container.
   update                     Update the agent CLIs inside the container.
@@ -78,14 +101,16 @@ Commands:
   status                     Show container, image, and volume state.
   doctor                     Check the host for everything the airlock needs.
   reset [--purge]            Remove the container. --purge also deletes the home volume.
+  uninstall                  Remove the container, home volume, image, PATH link,
+                             and optionally the config directory.
 
 Hosts: Linux desktops and WSL2 support every command; macOS supports all but
-code, since it has no Wayland display.
+vscode --container, since it has no Wayland display.
 
 Environment overrides: AIRLOCK_NAME, AIRLOCK_IMAGE, AIRLOCK_VOLUME,
-AIRLOCK_GIT_DIR, AIRLOCK_PORTS, AIRLOCK_CODE_ARGS, LOCAL_LLM_BASE_URL,
-OLLAMA_HOST. An env file at ${ENV_FILE_DEFAULT} is passed to the container
-when present (see config/env.example).
+AIRLOCK_GIT_DIR, AIRLOCK_BIN_DIR, AIRLOCK_PORTS, AIRLOCK_CODE_ARGS,
+LOCAL_LLM_BASE_URL, OLLAMA_HOST. An env file at ${ENV_FILE_DEFAULT} is passed
+to the container when present (see config/env.example).
 EOF
 }
 
@@ -224,7 +249,89 @@ hex_encode() {
     printf '%s' "$1" | od -An -tx1 | tr -d ' \n'
 }
 
+ensure_running() {
+    # Commands that need the container start it themselves; a separate "up"
+    # is only needed to pass flags such as --env-file. A missing container
+    # is created with --gui when the image was built with it and a Wayland
+    # display is present, matching how the airlock was installed.
+    container_running && return 0
+    if container_exists; then
+        cmd_up
+    elif [[ "$(podman image inspect -f '{{ index .Config.Labels "airlock.gui" }}' "${IMAGE}" 2>/dev/null)" == "1" ]] \
+            && is_linux && wayland_socket_path >/dev/null; then
+        log "${BOX_NAME} is not running; starting it with --gui."
+        cmd_up --gui
+    else
+        log "${BOX_NAME} is not running; starting it."
+        cmd_up
+    fi
+}
+
+install_podman_if_missing() {
+    # Installing a system package changes the host, so every path below asks
+    # first. On Windows the launcher runs inside a WSL2 distro, which takes
+    # the same dnf or apt-get path as any other Linux host.
+    if ! command -v podman >/dev/null 2>&1; then
+        if is_macos; then
+            command -v brew >/dev/null 2>&1 \
+                || die "podman is missing and Homebrew was not found; install podman first (https://podman.io)"
+            confirm "podman is missing. Install it with: brew install podman ?" || die "podman is required"
+            brew install podman
+        elif command -v dnf >/dev/null 2>&1; then
+            confirm "podman is missing. Install it with: sudo dnf install -y podman ?" || die "podman is required"
+            sudo dnf install -y podman
+        elif command -v apt-get >/dev/null 2>&1; then
+            confirm "podman is missing. Install it with: sudo apt-get install -y podman ?" || die "podman is required"
+            sudo apt-get update && sudo apt-get install -y podman
+        else
+            die "podman is missing and no supported package manager (dnf, apt-get, brew) was found"
+        fi
+    fi
+    if is_macos && ! podman info >/dev/null 2>&1; then
+        confirm "The podman machine is not running. Run: podman machine init --now ?" \
+            || die "the podman machine must be running"
+        podman machine init --now 2>/dev/null || podman machine start
+    fi
+}
+
+link_launcher() {
+    # A plain file at the link path is someone else's tool; leave it alone.
+    if [[ -e "${BIN_DIR}/airlock" && ! -L "${BIN_DIR}/airlock" ]]; then
+        log "warning: ${BIN_DIR}/airlock exists and is not a symlink; leaving it in place"
+        return 0
+    fi
+    mkdir -p "${BIN_DIR}"
+    ln -sf "${SCRIPT_DIR}/airlock" "${BIN_DIR}/airlock"
+    log "Linked ${BIN_DIR}/airlock -> ${SCRIPT_DIR}/airlock"
+    case ":${PATH}:" in
+        *":${BIN_DIR}:"*) ;;
+        *) log "note: ${BIN_DIR} is not on your PATH; add it, or call ${SCRIPT_DIR}/airlock directly" ;;
+    esac
+}
+
 ### Commands ###
+cmd_install() {
+    local gui=0 up_cmd
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gui) gui=1 ;;
+            *) die "unknown option for install: $1" ;;
+        esac
+        shift
+    done
+    if ! is_linux && ! is_macos; then
+        die "run install from a Linux shell; on Windows, enable WSL2 first (wsl --install) and run it inside the distro"
+    fi
+    install_podman_if_missing
+    # A downloaded zip loses the executable bits that a git clone keeps.
+    chmod +x "${SCRIPT_DIR}/airlock" "${SCRIPT_DIR}/entrypoint.sh"
+    link_launcher
+    cmd_doctor
+    if (( gui )); then cmd_build --gui; else cmd_build; fi
+    up_cmd="airlock up"; (( gui )) && up_cmd="airlock up --gui"
+    log "Install finished. Next: ${up_cmd}   then: airlock login claude   and: airlock login codex"
+}
+
 cmd_build() {
     local gui=0
     while [[ $# -gt 0 ]]; do
@@ -280,6 +387,9 @@ cmd_up() {
     local -a args=(
         run -d
         --name "${BOX_NAME}"
+        # A real init as PID 1 forwards SIGTERM to the idle sleep, so "down"
+        # stops the container promptly instead of escalating to SIGKILL.
+        --init
         --label "airlock.gui=${gui}"
         --userns "keep-id:uid=${CONTAINER_UID},gid=${CONTAINER_GID}"
         --shm-size 1g
@@ -339,31 +449,75 @@ cmd_down() {
 
 cmd_shell() {
     require_podman
-    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    ensure_running
     exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" bash -l
 }
 
-cmd_code() {
+cmd_vscode() {
+    # VS Code is an Electron application, so Chromium flags such as
+    # --no-sandbox in CODE_ARGS apply to it.
+    local where="" target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --container) where=container ;;
+            --host) where=host ;;
+            -*) die "unknown option for vscode: $1" ;;
+            *) target="$1" ;;
+        esac
+        shift
+    done
+    if [[ -z "${where}" ]]; then
+        # Default follows how the container was started: a --gui container
+        # runs the editor inside; anything else attaches the host editor.
+        if is_linux && [[ "$(container_label airlock.gui)" == "1" ]]; then
+            where=container
+        else
+            where=host
+        fi
+    fi
+    if [[ "${where}" == "container" ]]; then
+        vscode_in_container ${target:+"${target}"}
+    else
+        vscode_on_host ${target:+"${target}"}
+    fi
+}
+
+vscode_in_container() {
     local target
     target="$(container_path_for "${1:-${CONTAINER_GIT_DIR}}")"
     require_podman
-    is_linux || die "code runs inside the container only on Linux and WSL2 hosts; use open instead"
-    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up --gui"
+    is_linux || die "vscode --container needs a Linux or WSL2 host; use vscode --host instead"
+    ensure_running
     [[ "$(container_label airlock.gui)" == "1" ]] \
         || die "${BOX_NAME} was started without --gui; run: $(basename "$0") reset && $(basename "$0") up --gui"
     # shellcheck disable=SC2086
     podman exec -d "${BOX_NAME}" code ${CODE_ARGS} "${target}"
     log "Launched VS Code inside ${BOX_NAME} at ${target}."
+    log "No window? See docs/troubleshooting.md; run the same command in the"
+    log "foreground to read the error: podman exec -it ${BOX_NAME} code ${CODE_ARGS} --verbose"
 }
 
-cmd_open() {
+vscode_on_host() {
     # Opens the host VS Code already attached to the container, using the
     # folder URI the Dev Containers extension uses for attached containers.
-    local target authority
+    local target authority host_settings
     target="$(container_path_for "${1:-${CONTAINER_GIT_DIR}}")"
     require_podman
-    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    ensure_running
     command -v code >/dev/null 2>&1 || die "the host 'code' command is not on PATH"
+    # Without dev.containers.dockerPath=podman in the host settings, the
+    # Dev Containers extension drives Docker, cannot find this container,
+    # and offers to create a .devcontainer instead of attaching.
+    if is_macos; then
+        host_settings="${HOME}/Library/Application Support/Code/User/settings.json"
+    else
+        host_settings="${XDG_CONFIG_HOME:-${HOME}/.config}/Code/User/settings.json"
+    fi
+    if [[ ! -r "${host_settings}" ]] || ! grep -q 'dev.containers.dockerPath' "${host_settings}"; then
+        log "warning: the host VS Code is not configured for podman yet. Merge"
+        log "config/vscode-host-settings.jsonc into your user settings first;"
+        log "$(basename "$0") attach prints the steps."
+    fi
     authority="attached-container+$(hex_encode "{\"containerName\":\"/${BOX_NAME}\"}")"
     code --folder-uri "vscode-remote://${authority}${target}"
     log "Opened ${target} in the host VS Code attached to ${BOX_NAME}."
@@ -392,19 +546,24 @@ EOF
 cmd_login() {
     local tool="${1:-}"
     require_podman
-    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    ensure_running
+    # Every login starts in ~/git so tools that treat the working directory
+    # as the workspace (Claude Code's trust prompt) see the shared projects
+    # tree instead of the container home.
     case "${tool}" in
         claude)
             log "Claude Code prints a login URL. Open it in the host browser, then paste the code back here."
-            exec podman exec -it "${BOX_NAME}" claude
+            log "The container has no browser, so the copy-and-paste step is expected."
+            log "When the login finishes, type /exit to leave Claude Code and return to the host shell."
+            exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" claude
             ;;
         codex)
             log "Codex prints a login URL. Open it in the host browser; the callback returns on port ${CODEX_LOGIN_PORT}."
-            exec podman exec -it "${BOX_NAME}" codex login
+            exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" codex login
             ;;
         gh)
             log "Use a fine-grained token limited to the repositories the agents work on."
-            exec podman exec -it "${BOX_NAME}" gh auth login
+            exec podman exec -it -w "${CONTAINER_GIT_DIR}" "${BOX_NAME}" gh auth login
             ;;
         *)
             die "login needs one of: claude, codex, gh"
@@ -414,7 +573,7 @@ cmd_login() {
 
 cmd_update() {
     require_podman
-    container_running || die "${BOX_NAME} is not running; run: $(basename "$0") up"
+    ensure_running
     podman exec "${BOX_NAME}" bash -lc 'claude update; npm update -g'
 }
 
@@ -450,48 +609,68 @@ cmd_status() {
 }
 
 cmd_doctor() {
+    # Line labels: fail = must be fixed before the airlock can run;
+    # warn = something will misbehave until fixed; info = context only.
     local ok=1 port gateway
     if command -v podman >/dev/null 2>&1; then
-        log "podman: $(podman version --format '{{.Client.Version}}')"
-        if ! podman_version_ok; then log "  wanted 5.3 or newer"; ok=0; fi
+        log "ok    podman $(podman version --format '{{.Client.Version}}')"
+        podman_version_ok || log "warn  podman 5.3 or newer is recommended for host.containers.internal"
     else
-        log "podman: missing"; ok=0
+        log "fail  podman is not installed"; ok=0
     fi
     if is_macos; then
-        if podman info >/dev/null 2>&1; then log "podman machine: running"; else log "podman machine: not running"; ok=0; fi
+        if podman info >/dev/null 2>&1; then
+            log "ok    podman machine is running"
+        else
+            log "fail  podman machine is not running; start it with: podman machine start"; ok=0
+        fi
+    fi
+    if is_linux && [[ -r /etc/subuid ]] && ! grep -qE "^($(id -un)|$(id -u)):" /etc/subuid; then
+        log "fail  no /etc/subuid entry for $(id -un); rootless podman needs one (man subuid)"; ok=0
     fi
     if is_wsl; then
-        log "host: WSL2"
         gateway="$(wsl_gateway)"
-        log "  Windows host address (NAT mode): ${gateway:-unknown}"
-        log "  If the LLM server runs on Windows under NAT networking, set"
-        log "  LOCAL_LLM_BASE_URL=http://${gateway:-<gateway>}:8080/v1 and OLLAMA_HOST=http://${gateway:-<gateway>}:11434"
-        log "  Under mirrored networking the defaults already reach Windows loopback."
+        log "info  WSL2 host; Windows gateway address (NAT mode): ${gateway:-unknown}"
+        log "info  if the LLM server runs on Windows under NAT networking, set"
+        log "      LOCAL_LLM_BASE_URL=http://${gateway:-<gateway>}:8080/v1 and OLLAMA_HOST=http://${gateway:-<gateway>}:11434"
+        log "      (under mirrored networking the defaults already reach the Windows loopback)"
     fi
-    if [[ -d "${GIT_DIR}" ]]; then log "git dir: ${GIT_DIR}"; else log "git dir: ${GIT_DIR} missing"; ok=0; fi
+    if [[ -d "${GIT_DIR}" ]]; then
+        log "ok    git dir ${GIT_DIR}"
+    else
+        log "fail  git dir ${GIT_DIR} missing; create it or set AIRLOCK_GIT_DIR"; ok=0
+    fi
     if selinux_active; then
         if git_dir_relabeled; then
-            log "selinux: ${GIT_DIR} labeled container_file_t"
+            log "ok    SELinux: ${GIT_DIR} is labeled container_file_t"
         else
-            log "selinux: ${GIT_DIR} needs relabel (up will offer it)"
+            log "warn  SELinux: ${GIT_DIR} needs a one-time relabel; 'up' offers it"
         fi
     fi
     if is_linux; then
         if wayland_socket_path >/dev/null; then
-            log "wayland: $(wayland_socket_path) (--gui available)"
+            log "ok    Wayland socket $(wayland_socket_path) (--gui available)"
         else
-            log "wayland: no session socket found (--gui unavailable)"
+            log "info  no Wayland session socket (--gui unavailable; use 'open' instead of 'code')"
         fi
     fi
-    if [[ -f "${ENV_FILE_DEFAULT}" ]]; then log "env file: ${ENV_FILE_DEFAULT}"; else log "env file: none (browser login mode)"; fi
+    if [[ -f "${ENV_FILE_DEFAULT}" ]]; then
+        log "info  env file ${ENV_FILE_DEFAULT} will be passed to the container"
+    else
+        log "info  no env file (browser login mode)"
+    fi
     for port in 8080 11434; do
         if command -v curl >/dev/null 2>&1 && curl -s -m 2 -o /dev/null "http://127.0.0.1:${port}/"; then
-            log "host LLM port ${port}: listening"
+            log "info  host LLM port ${port} is listening"
         else
-            log "host LLM port ${port}: not answering on this host's loopback"
+            log "info  host LLM port ${port} is not answering; local models stay unavailable until it does"
         fi
     done
-    if (( ok )); then log "doctor: ready"; else die "doctor: fix the items above"; fi
+    if (( ok )); then
+        log "doctor: ready (warn lines are worth fixing; info lines need no action)"
+    else
+        die "doctor: fix the fail lines above"
+    fi
 }
 
 cmd_reset() {
@@ -512,25 +691,75 @@ cmd_reset() {
     fi
 }
 
+cmd_uninstall() {
+    local repo="${IMAGE%%:*}" tags
+    if command -v podman >/dev/null 2>&1; then
+        if container_exists; then
+            if confirm "Remove container ${BOX_NAME}?"; then
+                podman rm -f "${BOX_NAME}" >/dev/null; log "Removed container ${BOX_NAME}."
+            else
+                log "Kept container ${BOX_NAME}."
+            fi
+        fi
+        if podman volume exists "${VOLUME}"; then
+            if confirm "Delete home volume ${VOLUME}? (logins, installed agent tools, and settings are lost)"; then
+                podman volume rm "${VOLUME}" >/dev/null; log "Deleted volume ${VOLUME}."
+            else
+                log "Kept volume ${VOLUME}."
+            fi
+        fi
+        tags="$(podman images --format '{{.Repository}}:{{.Tag}}' | grep -F "${repo}:" || true)"
+        if [[ -n "${tags}" ]]; then
+            log "Images: ${tags//$'\n'/ }"
+            if confirm "Delete these images?"; then
+                # shellcheck disable=SC2086
+                podman rmi ${tags} >/dev/null; log "Deleted the images."
+            else
+                log "Kept the images."
+            fi
+        fi
+    else
+        log "podman is not installed; skipping the container, volume, and image."
+    fi
+    if [[ -L "${BIN_DIR}/airlock" && "$(readlink "${BIN_DIR}/airlock")" == "${SCRIPT_DIR}/airlock" ]]; then
+        rm "${BIN_DIR}/airlock"
+        log "Removed ${BIN_DIR}/airlock."
+    fi
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        if confirm "Delete config directory ${CONFIG_DIR}? (a stored env file may hold API keys)"; then
+            rm -r "${CONFIG_DIR}"; log "Deleted ${CONFIG_DIR}."
+        else
+            log "Kept ${CONFIG_DIR}."
+        fi
+    fi
+    log "Left untouched: ${GIT_DIR}, podman itself, and this repository folder."
+    if selinux_active && git_dir_relabeled; then
+        log "To undo the one-time SELinux relabel: restorecon -R ${GIT_DIR}"
+    fi
+}
+
 ### Dispatch ###
 main() {
     local command="${1:-}"
     [[ -n "${command}" ]] || { usage; exit 1; }
     shift
     case "${command}" in
-        build)    cmd_build "$@" ;;
-        up)       cmd_up "$@" ;;
-        down)     cmd_down ;;
-        shell)    cmd_shell ;;
-        code)     cmd_code "$@" ;;
-        open)     cmd_open "$@" ;;
-        attach)   cmd_attach ;;
-        login)    cmd_login "$@" ;;
-        update)   cmd_update ;;
-        snapshot) cmd_snapshot "$@" ;;
-        status)   cmd_status ;;
-        doctor)   cmd_doctor ;;
-        reset)    cmd_reset "$@" ;;
+        install)   cmd_install "$@" ;;
+        build)     cmd_build "$@" ;;
+        up)        cmd_up "$@" ;;
+        down)      cmd_down ;;
+        shell)     cmd_shell ;;
+        vscode)    cmd_vscode "$@" ;;
+        code)      cmd_vscode --container "$@" ;;
+        open)      cmd_vscode --host "$@" ;;
+        attach)    cmd_attach ;;
+        login)     cmd_login "$@" ;;
+        update)    cmd_update ;;
+        snapshot)  cmd_snapshot "$@" ;;
+        status)    cmd_status ;;
+        doctor)    cmd_doctor ;;
+        reset)     cmd_reset "$@" ;;
+        uninstall) cmd_uninstall ;;
         -h|--help|help) usage ;;
         *) usage; die "unknown command: ${command}" ;;
     esac

@@ -40,14 +40,12 @@ Key features:
 
 
 ## Quick Start Guide
-1. Install podman 5.3 or newer.
-2. Clone this repository into `~/git/agentairlock` and put `airlock` on your PATH, for example with `ln -s ~/git/agentairlock/airlock ~/.local/bin/airlock`.
-3. Run `airlock doctor` to check the host.
-4. Run `airlock build --gui`, then `airlock up --gui`. On macOS, leave out `--gui`.
-5. Run `airlock login claude` and `airlock login codex`.
-6. Run `airlock code ~/git/<repo>` to open VS Code inside the container, or `airlock open ~/git/<repo>` to attach the host VS Code.
+1. Get the code into `~/git/agent-airlock`, either by cloning it with `git clone https://github.com/gabrielmongefranco/agent-airlock.git ~/git/agent-airlock` or by downloading the repository and unzipping it into that folder.
+2. Run `cd ~/git/agent-airlock && bash ./airlock install --gui` (leave out `--gui` on macOS). Install offers to add podman if it is missing (using `dnf`, `apt-get`, or `brew`), links `airlock` into `~/.local/bin`, runs the `airlock doctor` host check, and builds the image. Fix anything doctor marks `fail`; `info` lines need no action. On Windows, first enable WSL2 (`wsl --install` in PowerShell) and do everything inside the WSL2 distro.
+3. Log in: `airlock login claude`, then `airlock login codex`. Each prints a URL to open in your host browser. Type `/exit` to leave Claude Code once it is signed in.
+4. Open the editor with `airlock vscode ~/git/<repo>`. When the container runs with `--gui`, this runs VS Code inside it; otherwise it attaches your host VS Code. Force one or the other with `--container` or `--host`.
 
-Run `airlock help` for every command.
+Commands that need the container start it automatically, with `--gui` when the image was built with it, so there is no separate start step; `airlock up` and `airlock down` control it by hand. On Fedora, the first start offers a one-time SELinux relabel of `~/git`; accept it. Run `airlock help` for every command, `airlock uninstall` to remove everything install added, and see [troubleshooting](docs/troubleshooting.md) when something fails.
 
 
 

@@ -131,11 +131,11 @@ The boundary is the same whichever way the editor connects. The launcher offers 
 
 | Transport | Command | Native window | Where it is the default | Notes |
 |---|---|---|---|---|
-| VS Code inside the container | `airlock code` | Yes | Linux desktops, WSLg on Windows | No attach step; open projects like any editor. Ports are published as a fixed range. Same shape as running the editor inside WSLg. |
-| Host VS Code attached | `airlock open` | Yes | macOS, and Windows without WSLg | One command opens an attached window. Ports auto-forward. Same shape as Remote-WSL on Windows. |
+| VS Code inside the container | `airlock vscode --container` (shorthand: `airlock code`) | Yes | Linux desktops, WSLg on Windows | No attach step; open projects like any editor. Ports are published as a fixed range. Same shape as running the editor inside WSLg. |
+| Host VS Code attached | `airlock vscode --host` (shorthand: `airlock open`) | Yes | macOS, and Windows without WSLg | One command opens an attached window. Ports auto-forward. Same shape as Remote-WSL on Windows. |
 | `code serve-web` | not provided | No, browser | Nowhere | Rejected for daily use. |
 
-`airlock open` builds the folder URI the Dev Containers extension uses for attached containers, so no `.devcontainer` folder exists anywhere and nothing is written into repositories.
+`airlock vscode --host` builds the folder URI the Dev Containers extension uses for attached containers, so no `.devcontainer` folder exists anywhere and nothing is written into repositories.
 
 
 ### Platform wrappers

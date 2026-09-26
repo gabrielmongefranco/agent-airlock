@@ -19,6 +19,7 @@ for developers and maintainers.
 
 - [Architecture](architecture.md): what runs where, what the agents can reach, and why it is built this way.
 - [Implementation plan](implementation-plan.md): phased bring-up on Linux, Windows, and macOS, with a checklist per phase.
+- [Troubleshooting](troubleshooting.md): real failures seen so far, with cause and fix.
 - [Pending decisions](pending-decisions.md): open choices on installing Claude Code and pinning the image's other packages.
 - [Documentation template](doc-template.md): starting structure for a knowledge base page.
 - [Skill authoring examples](skill-examples.md): optional recipes for common project types.

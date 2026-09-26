@@ -33,7 +33,7 @@ Files in this folder:
 
 | File | Purpose |
 |---|---|
-| `airlock` | Launcher: build, up, down, shell, code, open, attach, login, update, snapshot, status, doctor, reset. |
+| `airlock` | Launcher: install, build, up, down, shell, vscode (with the code and open shorthands), attach, login, update, snapshot, status, doctor, reset, uninstall. |
 | `Containerfile` | Debian image with the toolchains, Playwright, the agent CLIs, and optional VS Code. |
 | `entrypoint.sh` | Creates the runtime directory Wayland clients need, then idles. |
 | `config/claude-settings.json` | Default Claude Code settings inside the airlock (nested sandbox, excluded commands, domain allowlist). |
@@ -48,11 +48,9 @@ The launcher records whether a container was started with `--gui` as a container
 ### Phase 1: Fedora, first start
 
 #### Steps
-1. Copy this folder somewhere stable, for example `~/git/agentairlock`, run `chmod +x airlock entrypoint.sh`, and put `airlock` on your PATH with `ln -s ~/git/agentairlock/airlock ~/.local/bin/airlock`.
-2. Run `airlock doctor`. It checks podman's version, the git directory, SELinux labeling, the Wayland session, and whether the LLM ports answer.
-3. Run `airlock build --gui`. Expect a long first build: apt packages, Playwright's Chromium, VS Code, the Codex npm package, and the Claude Code installer.
-4. Run `airlock up --gui`. On Fedora it offers the one-time SELinux relabel of `~/git`. Accept it.
-5. Run `airlock shell` and check the basics: `whoami` (agent), `id -u` (1000), `ls ~/git`, `touch ~/git/airlock-test && ls -l ~/git/airlock-test` (owned by you on the host), then remove the file.
+1. Clone the repository somewhere stable, for example `~/git/agent-airlock`, and run `bash ./airlock install --gui` in it. Install offers to add podman if it is missing, links `airlock` into `~/.local/bin`, runs the doctor host check, and builds the image. Expect a long first build: apt packages, Playwright's Chromium, VS Code, the Codex npm package, and the Claude Code installer.
+2. Run `airlock up --gui`. On Fedora it offers the one-time SELinux relabel of `~/git`. Accept it.
+3. Run `airlock shell` and check the basics: `whoami` (agent), `id -u` (1000), `ls ~/git`, `touch ~/git/airlock-test && ls -l ~/git/airlock-test` (owned by you on the host), then remove the file.
 
 #### Checklist
 - `podman ps` shows `airlock` running.
@@ -155,7 +153,7 @@ Two things in this phase were not verified in advance and may need a fix on firs
 ### Phase 7: repository packaging
 
 #### Steps
-1. Initialize the repository from the personal repo template as `agentairlock`, and copy these files in. The placeholders are already filled with the project name.
+1. Initialize the repository from the personal repo template as `agent-airlock`, and copy these files in. The placeholders are already filled with the project name.
 2. Add `docs/README.md` linking `architecture.md` and this plan, and a short root `README.md` quick start (`doctor`, `build --gui`, `up --gui`, `code`, `login`) with the slogan.
 3. Link the repository from PeerFoil issue #4 as the recommended machine setup, and from the Windows exploration document as the container layer inside its Tier 2 distro.
 
