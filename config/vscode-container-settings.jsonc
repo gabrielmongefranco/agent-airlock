@@ -1,0 +1,32 @@
+// This file is part of Agent Airlock™
+// config/vscode-container-settings.jsonc
+// Author(s): Gabriel Mongefranco
+// Created: 2026-09-26
+// Last Modified: 2026-09-26
+// Summary: Default user settings for the VS Code that runs inside the
+//          container. Copied into the home volume on first start; VS Code
+//          reads settings.json as JSONC, so these comments are allowed.
+// Notes: See README file for documentation and full license information.
+//
+// Copyright © 2026 Gabriel Mongefranco
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program. If not, see <https://www.gnu.org/licenses/>.
+{
+    // Workspace Trust guards the editor while browsing untrusted code, but
+    // everything under ~/git is the user's own work, and the container is
+    // the isolation boundary the airlock relies on. Leaving trust on would
+    // ask about every repository and keep Source Control in Restricted
+    // Mode. Turning it off inside the container does not affect the host
+    // VS Code, which keeps its own trust settings.
+    "security.workspace.trust.enabled": false
+}
