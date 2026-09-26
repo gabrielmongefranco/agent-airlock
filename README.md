@@ -28,9 +28,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 ## Description
 Agent Airlock™ is a rootless podman container that holds the AI coding agents and their tools. The container sees only the host's `~/git` directory and its own home volume, reaches the host's local LLM server, and can run VS Code itself over the host's Wayland display (Linux desktops and WSLg). It runs on Linux, inside WSL2 on Windows, and on macOS with podman machine.
 
-***This project is under development as of 2026 and not yet ready to use.***
-
-<!-- ![Preview Image](images/Repo-preview.png) -->
+![Preview Image](images/Repo-preview.png)
 
 Key features:
 + Claude Code and Codex, as CLIs and as VS Code extensions, run inside the container with their MCP servers.
