@@ -2,10 +2,12 @@
 # config/codex-config.toml
 # Author(s): Gabriel Mongefranco
 # Created: 2026-09-23
-# Last Modified: 2026-09-26
+# Last Modified: 2026-10-01
 # Summary: Default Codex CLI configuration copied into the airlock on first
-#          start. Keeps Codex's own workspace-write sandbox on, allows network
-#          inside it, and registers the Playwright MCP server.
+#          start. Runs Codex without its own sandbox, which cannot start
+#          inside a rootless container, so the container is Codex's only
+#          boundary. Keeps approvals on request and registers the Playwright
+#          MCP server.
 # Notes: See README file for documentation and full license information.
 #
 # Copyright © 2026 Gabriel Mongefranco
@@ -22,16 +24,18 @@
 # You should have received a copy of the GNU General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# The container is the outer boundary; Codex's Landlock sandbox is a second,
-# tool-specific layer. If Codex reports that its sandbox cannot start inside
-# the container, change sandbox_mode to "danger-full-access" and rely on the
-# container alone.
-sandbox_mode = "workspace-write"
+# Codex's workspace-write sandbox runs its commands under bubblewrap with a
+# fresh /proc mount, which a rootless podman container denies ("bwrap: Can't
+# mount proc on /proc: Operation not permitted"). Its legacy Landlock mode
+# also requires bubblewrap. Codex therefore runs unsandboxed and relies on
+# the container, which still limits it to ~/git and the home volume.
+sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
 
 [sandbox_workspace_write]
-# Package installs and the local LLM gateway need outbound network from
-# inside Codex's sandbox.
+# Applies only if sandbox_mode returns to "workspace-write" on a host where
+# Codex's sandbox can start. Package installs and the local LLM gateway need
+# outbound network from inside that sandbox.
 network_access = true
 
 [mcp_servers.playwright]

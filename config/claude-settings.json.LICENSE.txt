@@ -3,12 +3,14 @@ config/claude-settings.json (license notice kept in this sibling file because
 the settings file must stay valid for the tool that reads it)
 Author(s): Gabriel Mongefranco
 Created: 2026-09-23
-Last Modified: 2026-09-26
+Last Modified: 2026-10-01
 Summary: Default Claude Code user settings copied into the airlock on first
-         start. Turns on the inner Bash sandbox in nested mode, lists commands
-         that must run at container level (dev servers, Playwright, package
-         installs), seeds the outbound domain allowlist, and hides API keys
-         from sandboxed shell commands.
+         start. Turns on the inner Bash sandbox in nested mode with its
+         filesystem layer off, because the container already limits writes
+         to ~/git and the home volume. Makes all of /home/agent/git a working
+         directory, lists commands that must run at container level (dev
+         servers, Playwright, npm and pipx installs), seeds the outbound
+         domain allowlist, and hides API keys from sandboxed shell commands.
 Notes: See README file for documentation and full license information.
 
 Copyright © 2026 Gabriel Mongefranco

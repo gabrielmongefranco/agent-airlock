@@ -4,14 +4,15 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "enableWeakerNestedSandbox": true,
+    "filesystem": {
+      "disabled": true
+    },
     "excludedCommands": [
       "zippyserve *",
       "python3 -m http.server *",
       "python -m http.server *",
       "npx playwright *",
       "playwright *",
-      "sudo apt-get *",
-      "sudo apt *",
       "npm install -g *",
       "pipx install *"
     ],
@@ -80,6 +81,9 @@
     }
   },
   "permissions": {
+    "additionalDirectories": [
+      "/home/agent/git"
+    ],
     "allow": [
       "Bash(zippyserve *)",
       "Bash(python3 -m http.server *)",
