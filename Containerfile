@@ -2,7 +2,7 @@
 # Containerfile
 # Author(s): Gabriel Mongefranco
 # Created: 2026-09-23
-# Last Modified: 2026-09-26
+# Last Modified: 2026-10-01
 # Summary: Builds the Agent Airlock image: a Debian container that holds the
 #          coding agents, their toolchains, Playwright, and optionally VS Code,
 #          so that nothing an agent installs or runs touches the host system.
@@ -117,6 +117,9 @@ RUN mkdir -p "${HOME}/.npm-global" "${HOME}/.local/bin" "${HOME}/git" \
 # Default agent configuration. These land in the home volume on first start
 # and are never overwritten by later image builds.
 COPY --chown=agent:agent config/claude-settings.json /home/agent/.claude/settings.json
+# Claude Code loads every file in ~/.claude/rules in each session, so agents
+# learn the airlock's workspace, network, and sudo limits without trial and error.
+COPY --chown=agent:agent config/claude-airlock-rules.md /home/agent/.claude/rules/airlock.md
 COPY --chown=agent:agent config/codex-config.toml /home/agent/.codex/config.toml
 COPY --chown=agent:agent config/bashrc-agent.sh /home/agent/.bashrc.d/airlock.sh
 # The in-container VS Code reads its user settings as JSONC, so the file

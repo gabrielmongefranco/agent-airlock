@@ -3,7 +3,7 @@ This file is part of Agent Airlock™
 docs/implementation-plan.md
 Author(s): Gabriel Mongefranco
 Created: 2026-09-23
-Last Modified: 2026-09-26
+Last Modified: 2026-10-01
 Summary: Phased plan for bringing up the airlock on Fedora first, then
          Windows through WSL2, then macOS, with a verification checklist per
          phase and the decisions still open.
@@ -36,8 +36,9 @@ Files in this folder:
 | `airlock` | Launcher: install, build, up, down, shell, vscode (with the code and open shorthands), attach, login, update, snapshot, status, doctor, reset, uninstall. |
 | `Containerfile` | Debian image with the toolchains, Playwright, the agent CLIs, and optional VS Code. |
 | `entrypoint.sh` | Creates the runtime directory Wayland clients need, then idles. |
-| `config/claude-settings.json` | Default Claude Code settings inside the airlock (nested sandbox, excluded commands, domain allowlist). |
-| `config/codex-config.toml` | Default Codex settings inside the airlock (workspace-write, Playwright MCP). |
+| `config/claude-settings.json` | Default Claude Code settings inside the airlock (nested sandbox with its filesystem layer off, all of `~/git` as the workspace, excluded commands, domain allowlist). |
+| `config/claude-airlock-rules.md` | Instructions Claude Code loads in every session inside the airlock: the workspace, servers and ports, `sudo`, and local models. |
+| `config/codex-config.toml` | Default Codex settings inside the airlock (no inner sandbox, because it cannot start in the container; Playwright MCP). |
 | `config/bashrc-agent.sh` | Shell defaults inside the airlock. |
 | `config/env.example` | Optional API keys and endpoint overrides for the launcher. |
 | `config/vscode-host-settings.jsonc` | Settings to merge into the host VS Code for the attach fallback. |
@@ -77,9 +78,9 @@ Two things in this phase were not verified in advance and may need a fix on firs
 - The window renders under Plasma with working clipboard and correct scaling. If scaling is wrong, set `AIRLOCK_CODE_ARGS="--disable-gpu --force-device-scale-factor=2"` (or your factor).
 - If VS Code reports a Chromium sandbox error, add `--no-sandbox` to `AIRLOCK_CODE_ARGS`. That flag concerns Chromium's renderer sandbox, not the container.
 - Both extensions show as signed in without a second login, because they read the CLI credential stores. The Codex extension's login callback, if it asks, arrives on port 1455.
-- In Claude Code, `/sandbox` shows the sandbox enabled and no Dependencies tab. Ask it to run `touch ~/../outside.txt`; the write is denied.
+- In Claude Code, `/sandbox` shows the sandbox enabled and no Dependencies tab. Ask it to run `curl -sS -m 10 https://example.com`; the sandbox refuses the host or asks you first. Ask it to run `ls -la` in a repository; no empty dotfiles such as `.bashrc` appear.
 - Ask Claude Code to run `ls /home/<your host user>`; it fails, because that directory does not exist in the airlock.
-- `codex` starts and reports its sandbox mode. If it reports the sandbox unavailable, switch `sandbox_mode` to `danger-full-access` in `~/.codex/config.toml` inside the airlock and note it under Open items.
+- `codex` starts and reports `danger-full-access` as its sandbox mode. Codex's own sandbox cannot start in a rootless container, because bubblewrap may not mount a fresh `/proc` there, so the container is Codex's boundary.
 - Signing in to GitHub from the editor (for Copilot) opens the in-container Firefox and the redirect returns to the editor.
 - Closing and reopening the window keeps the logins.
 
@@ -182,7 +183,6 @@ Recommendation: keep bash through Phase 4 so the design is proven before anythin
 - `act` inside the airlock needs podman inside podman (`--device /dev/fuse` and SELinux labeling off). Decide after Phase 3 whether the Linux CI job reproduced by `cargo test` is enough.
 - The KDE chat client (Alpaka) speaks the Ollama API; the 11434 gateway speaks the OpenAI API. Either extend the gateway with `/api/tags` and `/api/chat`, or run Ollama with its Vulkan backend after confirming it detects the RX 5500 XT.
 - The Claude domain allowlist in `config/claude-settings.json` is a starting seed. Prune or extend it after a week of prompts.
-- Whether Codex's Landlock sandbox starts inside the container is unknown until Phase 2.
 - The attached-container URI that `airlock open` builds encodes `{"containerName":"/airlock"}` in hex. The Dev Containers extension has used that form; if a VS Code update changes it, Phase 4 records the new one.
 - The image bakes the Claude Code installer and the Codex npm package into the home volume on first start. Later image rebuilds do not refresh the volume; `airlock update` does.
 - On Windows, the Windows-side LLM server must accept connections from the WSL subnet under NAT networking, which usually means a Windows Firewall rule for the server binary.

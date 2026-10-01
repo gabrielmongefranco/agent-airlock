@@ -3,7 +3,7 @@ This file is part of Agent Airlock™
 docs/architecture.md
 Author(s): Gabriel Mongefranco
 Created: 2026-09-23
-Last Modified: 2026-09-26
+Last Modified: 2026-10-01
 Summary: Describes the airlock: what runs where, what the agents can and
          cannot reach, how the editor connects on each platform, and why the
          other options were not chosen.
@@ -109,18 +109,23 @@ In words: the launcher starts the container. The editor is either VS Code runnin
 
 #### Two sandbox layers
 
-The container is the outer boundary and the one that matters. Each agent also keeps its own inner sandbox:
+The container is the outer boundary and the one that matters. Claude Code adds a second, inner layer for its shell commands. Codex runs without one.
 
-- Claude Code's Bash sandbox (bubblewrap) runs in nested mode inside the container, which the tool's own documentation describes as acceptable when the container provides the isolation. It scopes writes to the working directory, applies the domain allowlist in `config/claude-settings.json`, and hides API keys from shell commands.
-- Codex's Landlock sandbox runs in `workspace-write` mode.
+- Claude Code's Bash sandbox (bubblewrap) runs in nested mode inside the container, which the tool's own documentation describes as acceptable when the container provides the isolation. It applies the domain allowlist in `config/claude-settings.json`, hides API keys from shell commands, and runs each command in its own network namespace. Its filesystem layer is off. That layer let commands write only to the folder the editor window had open, and the empty files it placed over protected paths, such as `.git/config.lock`, blocked git and the editor in every process that saw them.
+- Codex runs with `sandbox_mode = "danger-full-access"`. Its own sandbox needs bubblewrap to mount a fresh `/proc`, which a rootless container denies, so it cannot start here.
 
-The inner layers cover only what each tool spawns as shell commands. MCP servers and the other CLI are children outside those layers, so a design that relied on inner sandboxes alone would leave the multi-agent workflow (PeerFoil) uncovered. That is the main reason the boundary is a container.
+A rules file, `config/claude-airlock-rules.md`, lands in the home volume as `~/.claude/rules/airlock.md`. Claude Code loads it in every session, so agents learn these limits without discovering them by trial and error.
+
+The inner layer covers only the shell commands Claude Code runs. MCP servers, Codex, and the editor run outside it, so a design that relied on inner sandboxes alone would leave the multi-agent workflow (PeerFoil) uncovered. That is the main reason the boundary is a container.
 
 #### Known limits
 
-- On Linux, Claude Code's inner sandbox blocks loopback in both directions for the commands it wraps. Dev servers, Playwright, and package installs are therefore listed in `excludedCommands`, which runs them at container level. That is still inside the boundary.
+- On Linux, each command that Claude Code's sandbox wraps gets its own network namespace and loopback, and it cannot use Unix-domain sockets. A server started by one command cannot be reached from a later command, the editor, or the host browser, and a sandboxed command cannot reach a server started at container level. Dev servers, Playwright, and npm and pipx installs are therefore listed in `excludedCommands`, which runs them at container level. That is still inside the boundary.
+- Claude Code keeps every command that starts with `sudo` inside its sandbox, where `sudo` cannot run. Installing a package with `sudo apt-get` therefore needs a run outside the sandbox that you approve.
 - Nested mode for the inner sandbox exposes process information to sandboxed commands that a fresh `/proc` would hide.
-- The inner domain allowlist decides by hostname without inspecting TLS. It keeps agents honest; it does not stop a determined exfiltration.
+- The inner domain allowlist decides by hostname without inspecting TLS. With the filesystem layer off, a command can also rewrite Claude Code's own settings and turn the allowlist off. It keeps agents honest; it does not stop a determined exfiltration.
+- Codex's shell commands have no inner sandbox, so they can write anywhere the container can and reach any host.
+- Files under `~/git` that the host runs later are a way out of the airlock. Agents can write git hooks and `.git/config` in every repository, and host git runs them. The same goes for build scripts, and for editor tasks opened in a host editor. Run git for these repositories inside the airlock, where pushing and branch tracking work.
 - With `--gui`, the container holds the host's compositor socket and runs with SELinux labeling off. Wayland stops it from reading other windows or injecting input, but it can draw windows and use the clipboard.
 - Running the GitHub Actions runner `act` inside the container needs podman inside podman. This is possible but not set up by default; `cargo test` and friends inside the container already reproduce the Linux CI job.
 
@@ -184,6 +189,8 @@ Colleagues with API keys put them in the env file (`config/env.example`). The Cl
 | Decision | Reason |
 |---|---|
 | Container, not the Claude Code sandbox alone | The inner sandbox covers only Claude's shell commands, not Codex, MCP children, or the extensions. It also cannot host tool installs without writing to the host home. |
+| Claude Code's sandbox with its filesystem layer off | With the layer on, commands could write only to the folder the editor had open, which broke work across `~/git`, and its placeholder files blocked git and the editor in every process. The container already limits writes to `~/git` and the home volume. The network layer stays on for the domain allowlist and key hiding. |
+| Codex with `danger-full-access` | Codex's sandbox cannot mount a fresh `/proc` inside a rootless container, and its legacy Landlock mode also needs bubblewrap. The container is Codex's boundary. |
 | Container, not a dedicated Linux user | A second user keeps agent installs in its own home, but distro packages would still be installed system-wide by you. |
 | Podman, not toolbox or distrobox | Those two mount the full host home and the host root at `/run/host` on purpose. They are convenience tools, not boundaries. |
 | Podman, not firejail | Firejail is Linux-only and blocks the mount calls Claude's inner sandbox needs. It remains a reasonable Linux-only shortcut. |
